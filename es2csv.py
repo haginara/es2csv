@@ -209,7 +209,7 @@ class Es2csv:
             if self.num_results > 0:
                 self.csv_headers.sort()
                 output_file = open(self.opts.output_file, 'a')
-                csv_writer = csv.DictWriter(output_file, fieldnames=self.csv_headers, delimiter=self.opts.delimiter)
+                csv_writer = csv.DictWriter(output_file, fieldnames=self.csv_headers, delimiter=self.opts.delimiter, lineterminator='\n')
                 csv_writer.writeheader()
                 timer = 0
                 widgets = ['Write to csv ',
