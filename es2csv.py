@@ -203,6 +203,12 @@ class Es2csv:
                     tmp_file.write('%s\n' % json.dumps(out))
         tmp_file.close()
 
+    def write_to_file(self):
+        getattr(self, 'write_to_%s' % self.opts.output_format)()
+
+    def write_to_json(self):
+        os.rename(self.tmp_file, self.opts.output_file)
+
     def write_to_csv(self):
         if self.num_results > 0:
             self.num_results = sum(1 for line in open(self.tmp_file, 'r'))
@@ -247,6 +253,7 @@ def main():
     p.add_argument('-u', '--url', dest='url', default='http://localhost:9200', type=str, help='Elasticsearch host URL. Default is %(default)s.')
     p.add_argument('-i', '--index-prefixes', dest='index_prefixes', default=['logstash-*'], type=str, nargs='+', metavar='INDEX', help='Index name prefix(es). Default is %(default)s.')
     p.add_argument('-t', '--tags', dest='tags', type=str, nargs='+', help='Query tags.')
+    p.add_argument('-O', '--output_format', dest='output_format', type=str, choices=['csv', 'json'], default='csv', help='Output file format(supports csv and json)')
     p.add_argument('-o', '--output_file', dest='output_file', type=str, required=True, metavar='FILE', help='CSV file location.')
     p.add_argument('-f', '--fields', dest='fields', default=['_all'], type=str, nargs='+', help='List of selected fields in output. Default is %(default)s.')
     p.add_argument('-d', '--delimiter', dest='delimiter', default=',', type=str, help='Delimiter to use in CSV file. Default is "%(default)s".')
@@ -266,7 +273,7 @@ def main():
     es.create_connection()
     es.check_indexes()
     es.search_query()
-    es.write_to_csv()
+    es.write_to_file()
     es.clean_scroll_ids()
 
 if __name__ == '__main__':
