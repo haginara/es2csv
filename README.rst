@@ -30,24 +30,26 @@ Usage
 .. code-block:: bash
 
  $ es2csv [-h] -q QUERY [-u URL] [-i INDEX [INDEX ...]]
-          [-t TAGS [TAGS ...]] -o FILE [-f FIELDS [FIELDS ...]]
-          [-d DELIMITER] [-m INTEGER] [-k] [-r] [-v] [--debug]
+          [-t TAGS [TAGS ...]] -o FILE [-f FIELDS [FIELDS ...]] 
+          [-l {win,unix}] [-d DELIMITER] [-m INTEGER] [-k] [-r]
+          [-v] [--debug]
 
  Arguments:
-  -q, --query QUERY                        Query string in Lucene syntax.               [required]
-  -o, --output_file FILE                   CSV file location.                           [required]
-  -u, --url URL                            Elasticsearch host URL. Default is http://localhost:9200.
-  -i, --index-prefixes INDEX [INDEX ...]   Index name prefix(es). Default is ['logstash-*'].
-  -t, --tags TAGS [TAGS ...]               Query tags.
-  -f, --fields FIELDS [FIELDS ...]         List of selected fields in output. Default is ['_all'].
-  -d, --delimiter DELIMITER                Delimiter to use in CSV file. Default is ",".
-  -m, --max INTEGER                        Maximum number of results to return. Default is 0.
-  -k, --kibana_nested                      Format nested fields in Kibana style.
-  -r, --raw_query                          Switch query format in the Query DSL.
-  -e, --meta_fields                        Add meta-fields in output.
-  -v, --version                            Show version and exit.
-  --debug                                  Debug mode on.
-  -h, --help                               show this help message and exit
+  -q, --query QUERY                             Query string in Lucene syntax.               [required]
+  -o, --output_file FILE                        CSV file location.                           [required]
+  -u, --url URL                                 Elasticsearch host URL. Default is http://localhost:9200.
+  -i, --index-prefixes INDEX [INDEX ...]        Index name prefix(es). Default is ['logstash-*'].
+  -t, --tags TAGS [TAGS ...]                    Query tags.
+  -f, --fields FIELDS [FIELDS ...]              List of selected fields in output. Default is ['_all'].
+  -d, --delimiter DELIMITER                     Delimiter to use in CSV file. Default is ",".
+  -l {win,unix}, --lineterminator {win,unix}    Lineterminator to use in CSV file. Default is "win".
+  -m, --max INTEGER                             Maximum number of results to return. Default is 0.
+  -k, --kibana_nested                           Format nested fields in Kibana style.
+  -r, --raw_query                               Switch query format in the Query DSL.
+  -e, --meta_fields                             Add meta-fields in output.
+  -v, --version                                 Show version and exit.
+  --debug                                       Debug mode on.
+  -h, --help                                    show this help message and exit
 
 Examples
 --------
