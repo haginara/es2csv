@@ -215,7 +215,7 @@ class Es2csv:
             if self.num_results > 0:
                 self.csv_headers.sort()
                 output_file = open(self.opts.output_file, 'a')
-                csv_writer = csv.DictWriter(output_file, fieldnames=self.csv_headers, delimiter=self.opts.delimiter, lineterminator='\n')
+                csv_writer = csv.DictWriter(output_file, fieldnames=self.csv_headers, delimiter=self.opts.delimiter, lineterminator=self.opts.lineterminator)
                 csv_writer.writeheader()
                 timer = 0
                 widgets = ['Write to csv ',
@@ -248,6 +248,10 @@ class Es2csv:
 
 
 def main():
+    class DictAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            setattr(namespace, self.dest, self.choices.get(values, self.default))
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('-q', '--query', dest='query', type=str, required=True, help='Query string in Lucene syntax.')
     p.add_argument('-u', '--url', dest='url', default='http://localhost:9200', type=str, help='Elasticsearch host URL. Default is %(default)s.')
@@ -257,6 +261,7 @@ def main():
     p.add_argument('-o', '--output_file', dest='output_file', type=str, required=True, metavar='FILE', help='CSV file location.')
     p.add_argument('-f', '--fields', dest='fields', default=['_all'], type=str, nargs='+', help='List of selected fields in output. Default is %(default)s.')
     p.add_argument('-d', '--delimiter', dest='delimiter', default=',', type=str, help='Delimiter to use in CSV file. Default is "%(default)s".')
+    p.add_argument('-l', '--lineterminator', dest='lineterminator', default='win', action=DictAction, choices={'win':'\r', 'unix':'\r\n'}, help='Lineterminator to use in CSV file. Default is "%(default)s".')
     p.add_argument('-m', '--max', dest='max_results', default=0, type=int, metavar='INTEGER', help='Maximum number of results to return. Default is %(default)s.')
     p.add_argument('-k', '--kibana_nested', dest='kibana_nested', action='store_true', help='Format nested fields in Kibana style.')
     p.add_argument('-r', '--raw_query', dest='raw_query', action='store_true', help='Switch query format in the Query DSL.')
