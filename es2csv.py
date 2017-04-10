@@ -26,7 +26,7 @@ CONNECTION_TIMEOUT = 120
 TIMES_TO_TRY = 3
 RETRY_DELAY = 60
 META_FIELDS = ['_id', '_index', '_score', '_type']
-__version__ = '1.0.3'
+__version__ = '5.2.1'
 
 
 # Retry decorator for functions with exceptions
@@ -48,7 +48,7 @@ def retry(ExceptionToCheck, tries=TIMES_TO_TRY, delay=RETRY_DELAY):
             try:
                 return f(*args, **kwargs)
             except ExceptionToCheck as e:
-                print(e)
+                print('Fatal Error: %s' % e)
                 exit(1)
 
         return f_retry
@@ -63,7 +63,6 @@ class Es2csv:
 
         self.num_results = 0
         self.scroll_ids = []
-        self.scroll_size = 100
         self.scroll_time = '30m'
 
         self.csv_headers = list(META_FIELDS) if self.opts.meta_fields else []
@@ -71,7 +70,7 @@ class Es2csv:
 
     @retry(elasticsearch.exceptions.ConnectionError, tries=TIMES_TO_TRY)
     def create_connection(self):
-        es = elasticsearch.Elasticsearch(self.opts.url, timeout=CONNECTION_TIMEOUT)
+        es = elasticsearch.Elasticsearch(self.opts.url, timeout=CONNECTION_TIMEOUT, http_auth=self.opts.auth, verify_certs=self.opts.verify_certs, ca_certs=self.opts.ca_certs, client_cert=self.opts.client_cert, client_key=self.opts.client_key)
         es.cluster.health()
         self.es_conn = es
 
@@ -89,23 +88,34 @@ class Es2csv:
 
     @retry(elasticsearch.exceptions.ConnectionError, tries=TIMES_TO_TRY)
     def search_query(self):
+        @retry(elasticsearch.exceptions.ConnectionError, tries=TIMES_TO_TRY)
+        def next_scroll(scroll_id):
+            return self.es_conn.scroll(scroll=self.scroll_time, scroll_id=scroll_id)
         search_args = dict(
             index=','.join(self.opts.index_prefixes),
-            search_type='scan',
             scroll=self.scroll_time,
-            size=self.scroll_size,
+            #search_type="scan",
+            size=self.opts.scroll_size,
             terminate_after=self.opts.max_results
         )
+
+        if self.opts.doc_types:
+            search_args['doc_type'] = self.opts.doc_types
+
         if self.opts.query.startswith('@'):
             query_file = self.opts.query[1:]
             if os.path.exists(query_file):
                 with open(query_file, 'r') as f:
                     self.opts.query = f.read()
             else:
-                print 'No such file: %s' % query_file
+                print('No such file: %s' % query_file)
                 exit(1)
         if self.opts.raw_query:
-            query = json.loads(self.opts.query)
+            try:
+                query = json.loads(self.opts.query)
+            except ValueError as e:
+                print('Invalid JSON syntax in query. %s' % e)
+                exit(1)
             search_args['body'] = query
         else:
             query = self.opts.query if not self.opts.tags else '%s AND tags:%s' % (
@@ -113,7 +123,8 @@ class Es2csv:
             search_args['q'] = query
 
         if '_all' not in self.opts.fields:
-            search_args['fields'] = ','.join(self.opts.fields)
+            search_args['_source_include'] = ','.join(self.opts.fields)
+            self.csv_headers.extend([field for field in self.opts.fields if '*' not in field])
 
         if self.opts.debug_mode:
             print('Using these indices: %s' % ', '.join(self.opts.index_prefixes))
@@ -122,12 +133,11 @@ class Es2csv:
 
         res = self.es_conn.search(**search_args)
 
-        self.scroll_ids.append(res['_scroll_id'])
         self.num_results = res['hits']['total']
 
         print('Found %s results' % self.num_results)
         if self.opts.debug_mode:
-            print(res)
+            print(json.dumps(res))
 
         if self.num_results > 0:
             open(self.opts.output_file, 'w').close()
@@ -142,15 +152,17 @@ class Es2csv:
                        progressbar.Percentage(),
                        progressbar.FormatLabel('] [%(elapsed)s] ['),
                        progressbar.ETA(), '] [',
-                       progressbar.FileTransferSpeed('docs'), ']'
+                       progressbar.FileTransferSpeed(unit='docs'), ']'
                        ]
             bar = progressbar.ProgressBar(widgets=widgets, maxval=self.num_results).start()
 
             while total_lines != self.num_results:
-                res = self.es_conn.scroll(scroll=self.scroll_time, scroll_id=res['_scroll_id'])
                 if res['_scroll_id'] not in self.scroll_ids:
                     self.scroll_ids.append(res['_scroll_id'])
 
+                if not res['hits']['hits']:
+                    print('Scroll[%s] expired(multiple reads?). Saving loaded data.' % res['_scroll_id'])
+                    break
                 for hit in res['hits']['hits']:
                     total_lines += 1
                     bar.update(total_lines)
@@ -163,6 +175,7 @@ class Es2csv:
                             self.flush_to_file(hit_list)
                             print('Hit max result limit: %s records' % self.opts.max_results)
                             return
+                res = next_scroll(res['_scroll_id'])
             self.flush_to_file(hit_list)
             bar.finish()
 
@@ -195,7 +208,7 @@ class Es2csv:
         with open(self.tmp_file, 'a') as tmp_file:
             for hit in hit_list:
                 out = {field: hit[field] for field in META_FIELDS} if self.opts.meta_fields else {}
-                if '_source' in hit:
+                if '_source' in hit and len(hit['_source']) > 0:
                     to_keyvalue_pairs(hit['_source'])
                     tmp_file.write('%s\n' % json.dumps(out))
                 elif 'fields' in hit:
@@ -224,7 +237,7 @@ class Es2csv:
                            progressbar.Percentage(),
                            progressbar.FormatLabel('] [%(elapsed)s] ['),
                            progressbar.ETA(), '] [',
-                           progressbar.FileTransferSpeed('lines'), ']'
+                           progressbar.FileTransferSpeed(unit='lines'), ']'
                            ]
                 bar = progressbar.ProgressBar(widgets=widgets, maxval=self.num_results).start()
 
@@ -255,7 +268,9 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('-q', '--query', dest='query', type=str, required=True, help='Query string in Lucene syntax.')
     p.add_argument('-u', '--url', dest='url', default='http://localhost:9200', type=str, help='Elasticsearch host URL. Default is %(default)s.')
+    p.add_argument('-a', '--auth', dest='auth', type=str, required=False, help='Elasticsearch basic authentication in the form of username:password.')
     p.add_argument('-i', '--index-prefixes', dest='index_prefixes', default=['logstash-*'], type=str, nargs='+', metavar='INDEX', help='Index name prefix(es). Default is %(default)s.')
+    p.add_argument('-D', '--doc_types', dest='doc_types', type=str, nargs='+', metavar='DOC_TYPE', help='Document type(s).')
     p.add_argument('-t', '--tags', dest='tags', type=str, nargs='+', help='Query tags.')
     p.add_argument('-O', '--output_format', dest='output_format', type=str, choices=['csv', 'json'], default='csv', help='Output file format(supports csv and json)')
     p.add_argument('-o', '--output_file', dest='output_file', type=str, required=True, metavar='FILE', help='CSV file location.')
@@ -263,9 +278,14 @@ def main():
     p.add_argument('-d', '--delimiter', dest='delimiter', default=',', type=str, help='Delimiter to use in CSV file. Default is "%(default)s".')
     p.add_argument('-l', '--lineterminator', dest='lineterminator', default='win', action=DictAction, choices={'win':'\r', 'unix':'\r\n'}, help='Lineterminator to use in CSV file. Default is "%(default)s".')
     p.add_argument('-m', '--max', dest='max_results', default=0, type=int, metavar='INTEGER', help='Maximum number of results to return. Default is %(default)s.')
+    p.add_argument('-s', '--scroll_size', dest='scroll_size', default=100, type=int, metavar='INTEGER', help='Scroll size for each batch of results. Default is %(default)s.')
     p.add_argument('-k', '--kibana_nested', dest='kibana_nested', action='store_true', help='Format nested fields in Kibana style.')
     p.add_argument('-r', '--raw_query', dest='raw_query', action='store_true', help='Switch query format in the Query DSL.')
     p.add_argument('-e', '--meta_fields', dest='meta_fields', action='store_true', help='Add meta-fields in output.')
+    p.add_argument('--verify-certs', dest='verify_certs', action='store_true', help='Verify SSL certificates. Default is %(default)s.')
+    p.add_argument('--ca-certs', dest='ca_certs', default=None, type=str, help='Location of CA bundle.')
+    p.add_argument('--client-cert', dest='client_cert', default=None, type=str, help='Location of Client Auth cert.')
+    p.add_argument('--client-key', dest='client_key', default=None, type=str, help='Location of Client Cert Key.')
     p.add_argument('-v', '--version', action='version', version='%(prog)s ' + __version__, help='Show version and exit.')
     p.add_argument('--debug', dest='debug_mode', action='store_true', help='Debug mode on.')
 
@@ -278,7 +298,7 @@ def main():
     es.create_connection()
     es.check_indexes()
     es.search_query()
-    es.write_to_file()
+    es.write_to_csv()
     es.clean_scroll_ids()
 
 if __name__ == '__main__':
